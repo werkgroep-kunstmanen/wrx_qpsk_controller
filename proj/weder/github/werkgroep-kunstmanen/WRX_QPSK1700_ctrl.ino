@@ -10,6 +10,11 @@
  * History: 
  * $Log$
  *
+ * Release 3.1: - Added standard LCD-lib support (3-1-2023)
+ *              - Added UV916 support
+ *
+ * Release 3.0: - Added UV916 support (2-8-2022)
+ *
  * Release 2.1: - Added setting via UART (alternative manual via rotary switch)
  *
  * Release 1.35: - Only support of UV1316;
@@ -62,19 +67,27 @@
  *    - VCO / tuning voltage AN3
  *    - Modulation type HRPT / QPSK = 1 / 0 DIGITAL 3
  *******************************************************************/
-#define VERSION "Version: 2.2"
+// next zip-file for NewliquidCrystal doesn't exist anymore...
+//https://bitbucket.org/fmalpartida/new-liquidcrystal/downloads/NewliquidCrystal_1.3.4.zip
+
+#define VERSION "Version: 3.1"
+// Choose standard LiquidCrystal or NewliquidCrystal
+#define USE_NEWLCDLIB true
 
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h> //https://bitbucket.org/fmalpartida/new-liquidcrystal/downloads/NewliquidCrystal_1.3.4.zip
+#include <LiquidCrystal_I2C.h>
 
 
 // enable UART TX for debugging settings
 #define MONITOR_TX 0
 
 // Tuner parameters
-//#define FREQSTEP 62.500     // in kHz, 62.5 or 50
-#define FREQSTEP 50.000     // in kHz, 62.5 or 50
-#define FREQIF   365        // in MHz x 10
+#define FREQSTEP_UV916 62.500     // in kHz, 62.5
+
+//  Next for UV1316
+//#define FREQSTEP 62.500         // in kHz, 62.5 or 50
+#define FREQSTEP 50.000           // in kHz, 62.5 or 50
+#define FREQIF   365              // in MHz x 10
 
 // Pinning code: nr=Arduino numbering for Uno
 // Digital:
@@ -114,19 +127,23 @@
 #define QPSKpuls     5    // PD5
 #define MODtype      6    // PD6
 #define TYPEDOWNC   11    // PB3
+#define TYPETUNER   12    // PB4
 
-
-//LiquidCrystal_I2C lcd(0x27);  // Set the LCD I2C address
-//LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE); //PCF8574
-
+#if USE_NEWLCDLIB
+// Use NewliquidCrystal
 //                    addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
 LiquidCrystal_I2C lcd(0x3F, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE); //PCF8574A
+#else
+// Use LiquidCrystal
+//                    addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
+LiquidCrystal_I2C lcd(0x3F, 16,2); //PCF8574A
+#endif
 
 const int nrSamples = 10;
 int RFlevelsamples[nrSamples];
 int VCOsamples[nrSamples];
 
-unsigned int tuneradress, controlbyte;
+unsigned int tuneradress, controlbyte,band;
 unsigned int TuneFreq, DownConvFreq;
 
 String freqmessage, tuner;
@@ -136,6 +153,7 @@ boolean mode_psk_auto;
 unsigned int TuneFreq_auto=0;
 
 int TypeDC = 1;
+int TypeTuner = 1; // default: UV1316
 
 void setup()
 {
@@ -145,12 +163,18 @@ void setup()
   Serial.begin(38400,SERIAL_8N1);
 
   pinMode(TYPEDOWNC, INPUT_PULLUP);
+  pinMode(TYPETUNER, INPUT_PULLUP);
   pinMode(MODtype, OUTPUT);
   pinMode(QPSKpuls, OUTPUT);
 
   delay(1000);
 
-  lcd.begin(2, 16);
+#if !USE_NEWLCDLIB
+  lcd.init();
+#endif
+  lcd.begin(16,2);
+  lcd.clear();
+  lcd.backlight();
   lcd.setCursor(0, 0);
            //1234567890123456   
   lcd.print("QPSK-ontvanger");
@@ -159,17 +183,37 @@ void setup()
 
   delay(3000);
 
+  // Check which downconverter is used
+  TypeDC = digitalRead(TYPEDOWNC);
+  TypeTuner = digitalRead(TYPETUNER); // 1: UV1316, 0: UV916
+
   for (int j = 0; j < nrSamples; j++)
   {
     RFlevelsamples[j] = 0;
   }
 
+  // For UV1316 only
   if (FREQSTEP==50) rsab=0x0; else rsab=0x3;  //11=step of 62,5 kHz, 00=step of 50 kHz
-  tuneradress = 0x60;
-  controlbyte = 0x80 | (rsab<<1);
 
-  //Check which downconverter is used
-  TypeDC = digitalRead(TYPEDOWNC);
+  if (TypeTuner == 1) // UV1316
+  {
+    tuneradress = 0x60;
+    controlbyte = 0x80 | (rsab<<1);
+    if (TypeDC == 0)
+      band=0x01;
+    else
+      band=0x04;
+  }
+  else // UV916
+  {
+    tuneradress = 0x61;
+    controlbyte = 0x8E; // ?? freqstep??
+    if (TypeDC == 0)
+      band=0x60;
+    else
+      band=0x30;
+  }
+
 
   if (TypeDC == 0)
   {
@@ -194,11 +238,15 @@ void setup()
 
   lcd.setCursor(0, 0);
            //1234567890123456   
-  lcd.print("UV1316          ");
+  if (TypeTuner==1)
+    lcd.print("UV1316          ");
+  else
+    lcd.print("UV916          ");
+
+  delay(3000);
   lcd.setCursor(0, 1);
   lcd.print("VCO      RF     ");
 
-  delay(3000);
 }
 
 void resetpuls()
@@ -208,12 +256,17 @@ void resetpuls()
   digitalWrite(QPSKpuls, LOW);
 }
 
-void sent2uv1316()
+void send2uv()
 {
-  unsigned int lsb, msb, band;
-  unsigned int UV1316Freq;
+  unsigned int lsb, msb;
+  unsigned int UVFreq;
   unsigned long nrSteps;
-  unsigned int stepsize_10MHz=1000/FREQSTEP;
+  unsigned int stepsize_10MHz;
+  
+  if (TypeTuner==1)
+    stepsize_10MHz=1000/FREQSTEP;       // UV1316
+  else
+    stepsize_10MHz=1000/FREQSTEP_UV916; // UV916
   /*
   Downconverter is minus 1557 MHz
   Calculation of number of steps:
@@ -222,16 +275,16 @@ void sent2uv1316()
   */
 
   if (TuneFreq > 2000) // Downconverter is used
-    UV1316Freq = TuneFreq - DownConvFreq;
+    UVFreq = TuneFreq - DownConvFreq;
   else
-    UV1316Freq = TuneFreq;
+    UVFreq = TuneFreq;
 
   if ( TypeDC == 1) // Downconverter with LO 1000 MHz
     band = 0x04;
   else              // Downconverter with LO 1557 MHz or no downconverter
     band = 0x01;
 
-  nrSteps = (UV1316Freq + FREQIF) * stepsize_10MHz;
+  nrSteps = (UVFreq + FREQIF) * stepsize_10MHz;
   nrSteps = nrSteps / 10; // Because all frequencies x 10
 
   msb = nrSteps / 256;
@@ -354,7 +407,7 @@ void handle_switch()
     }
     digitalWrite(MODtype, mode_psk);
 
-    sent2uv1316();
+    send2uv();
     resetpuls();
     TuneSwitchOld = TuneSwitchNew;
   }
@@ -384,7 +437,7 @@ void handle_switch()
         digitalWrite(MODtype, mode_psk); 
 
         nr_crcerr=0;
-        sent2uv1316();
+        send2uv();
         resetpuls();
         sdata[15]=0;
         xsdata=(sdata+4); // name
