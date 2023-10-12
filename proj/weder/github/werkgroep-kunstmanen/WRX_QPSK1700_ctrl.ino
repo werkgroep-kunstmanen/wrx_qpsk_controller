@@ -10,6 +10,8 @@
  * History: 
  * $Log$
  *
+ * Release 3.2: - Corrected VCO/RF level update
+ *
  * Release 3.1: - Added standard LCD-lib support (3-1-2023)
  *              - Added UV916 support
  *
@@ -70,7 +72,7 @@
 // next zip-file for NewliquidCrystal doesn't exist anymore...
 //https://bitbucket.org/fmalpartida/new-liquidcrystal/downloads/NewliquidCrystal_1.3.4.zip
 
-#define VERSION "Version: 3.1"
+#define VERSION "Version: 3.2"
 // Choose standard LiquidCrystal or NewliquidCrystal
 #define USE_NEWLCDLIB true
 
@@ -412,9 +414,9 @@ void handle_switch()
     TuneSwitchOld = TuneSwitchNew;
   }
 
-  if (TuneSwitchNew==5)
+  if (get_data(sdata))
   {
-    if (get_data(sdata))
+    if (TuneSwitchNew==5)
     {
       unsigned char crc=0;
       unsigned char *xsdata;
