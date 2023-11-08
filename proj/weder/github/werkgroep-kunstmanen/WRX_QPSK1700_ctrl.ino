@@ -10,8 +10,11 @@
  * History: 
  * $Log$
  *
- * Release 3.2: - Corrected VCO/RF level update
+ * Release 3.3: - Corrected UV916, high-band setting
+ *              - added some comments, some re-arrangements
  *
+ * Release 3.2: - Corrected VCO/RF level update
+ * 
  * Release 3.1: - Added standard LCD-lib support (3-1-2023)
  *              - Added UV916 support
  *
@@ -72,26 +75,84 @@
 // next zip-file for NewliquidCrystal doesn't exist anymore...
 //https://bitbucket.org/fmalpartida/new-liquidcrystal/downloads/NewliquidCrystal_1.3.4.zip
 
-#define VERSION "Version: 3.2"
+#define VERSION "Version: 3.3"
+
+/*******************************************************************
+ *******************************************************************
+ * START SETTINGS
+ *******************************************************************
+ *******************************************************************/
+
+/*******************************************************************
+ * LCD display settings
+ *******************************************************************/
 // Choose standard LiquidCrystal or NewliquidCrystal
-#define USE_NEWLCDLIB true
+#define USE_NEWLCDLIB false
 
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+// address display, could be 0x3f or 0x27
+#define DISPL_ADDR 0x3f
+//#define DISPL_ADDR 0x27
+#define DISPLAY_NRCHARS 16
+#define DISPLAY_NRLINES 2
 
+/*******************************************************************
+ * Downconverter settings
+ * Choice done by input pin TYPEDOWNC.
+ * Default: pin=1, downconverter A
+ *******************************************************************/
+#define TYPEDC_A 1                      // default downconverter, pin P_TYPEDOWNC=1
+#define LO_DWNCONV_A 10000              // local oscillator, in MHz x 10
+
+#define TYPEDC_B 0                      // alternate downconverter, pin P_TYPEDOWNC=0
+#define LO_DWNCONV_B 15570              // local oscillator, in MHz x 10
+
+#define FREQIF       365L               // in MHz x 10
+
+/*******************************************************************
+ * Tuner parameters, note ASP pin!
+ * Choice done by input pin TYPETUNER.
+ * Default: pin=1, tuner UV1316
+ *******************************************************************/
+#define I2CADDR_ASP0       0x60         // tunerpin ASP=GND,  = 0xC0>>1
+#define I2CADDR_ASP2       0x61         // tunerpin ASP=open, = 0xC2>>1
+
+//  Tuner parameters for UV1316
+#define TYPE_UV1316        1            // default tuner, pin P_TYPETUNER=1
+//#define FREQSTEP_UV1316    62.500     // 62.5 kHz
+#define FREQSTEP_UV1316    50           // 50.0 kHz (UV1316 only)
+#define BAND_UV1316_A      0x04         // high band
+#define BAND_UV1316_B      0x01         // low band
+#define UV1316_I2CADDR     I2CADDR_ASP0
+
+#if FREQSTEP_UV1316==50
+  #define UV1316_CTRLBYTE 0x80
+#else
+  #define UV1316_CTRLBYTE 0x86
+#endif
+
+// Tuner parameters for UV916
+#define TYPE_UV916         0            // alternate tuner, pin P_TYPETUNER=0
+#define FREQSTEP_UV916     62.500       // 62.5 kHz
+#define BAND_UV916_A       0x30         // high band
+#define BAND_UV916_B       0x60         // low band
+#define UV916_I2CADDR      I2CADDR_ASP2
+#define UV916_CTRLBYTE     0x8E
+
+/*******************************************************************
+ *******************************************************************
+ * END SETTINGS
+ *******************************************************************
+ *******************************************************************/
 
 // enable UART TX for debugging settings
 #define MONITOR_TX 0
 
-// Tuner parameters
-#define FREQSTEP_UV916 62.500     // in kHz, 62.5
-
-//  Next for UV1316
-//#define FREQSTEP 62.500         // in kHz, 62.5 or 50
-#define FREQSTEP 50.000           // in kHz, 62.5 or 50
-#define FREQIF   365              // in MHz x 10
-
-// Pinning code: nr=Arduino numbering for Uno
+/*******************************************************************
+ *******************************************************************
+ * Start Pinning
+ *******************************************************************
+ *******************************************************************/
+// Pinning code ATmega328: nr=Arduino numbering for Uno
 // Digital:
 // nr	naam	pin 
 // 0	PD0	2	RXD
@@ -118,63 +179,75 @@
 // 0	PC0	23
 // 1	PC1	24
 // 2	PC2	25
-// 3	PC3	26stepsize_10MHz
+// 3	PC3	26
 
 // Define analog inputs
-#define RFlevel      0    // PC0
-#define TUNINGSWITCH 1    // PC1
-#define VCO          3    // PC3
+#define P_RFlevel      0    // PC0
+#define P_TUNINGSWITCH 1    // PC1
+#define P_VCO          3    // PC3
 
 // Define digital in/outputs
-#define QPSKpuls     5    // PD5
-#define MODtype      6    // PD6
-#define TYPEDOWNC   11    // PB3
-#define TYPETUNER   12    // PB4
+#define P_QPSKpuls     5    // PD5
+#define P_MODtype      6    // PD6
+#define P_TYPEDOWNC   11    // PB3
+#define P_TYPETUNER   12    // PB4
+
+/*******************************************************************
+ *******************************************************************
+ * End Pinning
+ *******************************************************************
+ *******************************************************************/
+// No changes beyond this point needed!
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 
 #if USE_NEWLCDLIB
 // Use NewliquidCrystal
-//                    addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
-LiquidCrystal_I2C lcd(0x3F, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE); //PCF8574A
+//                    addr      , en,rw,rs,d4,d5,d6,d7,bl,blpol
+LiquidCrystal_I2C lcd(DISPL_ADDR, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE); //PCF8574A
 #else
 // Use LiquidCrystal
-//                    addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
-LiquidCrystal_I2C lcd(0x3F, 16,2); //PCF8574A
+//                    addr      
+LiquidCrystal_I2C lcd(DISPL_ADDR, DISPLAY_NRCHARS,DISPLAY_NRLINES);
 #endif
 
+// for VCO/RF read-out
 const int nrSamples = 10;
 int RFlevelsamples[nrSamples];
 int VCOsamples[nrSamples];
 
+// for tuner-settings
 unsigned int tuneradress, controlbyte,band;
 unsigned int TuneFreq, DownConvFreq;
 
+// for LCD display
 String freqmessage, tuner;
-
 char freqmessage_auto[17];
+
+// for external frequency settings via RX input ATmega
 boolean mode_psk_auto;
 unsigned int TuneFreq_auto=0;
 
-int TypeDC = 1;
-int TypeTuner = 1; // default: UV1316
+int TypeDC;
+int TypeTuner;
 
 void setup()
 {
-  int rsab;
+  int  f_int,f_frac;
   Wire.begin();
   // Set UART for external tuner setting
   Serial.begin(38400,SERIAL_8N1);
 
-  pinMode(TYPEDOWNC, INPUT_PULLUP);
-  pinMode(TYPETUNER, INPUT_PULLUP);
-  pinMode(MODtype, OUTPUT);
-  pinMode(QPSKpuls, OUTPUT);
-
-  delay(1000);
+  pinMode(P_TYPEDOWNC, INPUT_PULLUP);
+  pinMode(P_TYPETUNER, INPUT_PULLUP);
+  pinMode(P_MODtype, OUTPUT);
+  pinMode(P_QPSKpuls, OUTPUT);
 
 #if !USE_NEWLCDLIB
   lcd.init();
 #endif
-  lcd.begin(16,2);
+  lcd.begin(DISPLAY_NRCHARS,DISPLAY_NRLINES);
   lcd.clear();
   lcd.backlight();
   lcd.setCursor(0, 0);
@@ -183,79 +256,83 @@ void setup()
   lcd.setCursor(0, 1);
   lcd.print(VERSION);
 
-  delay(3000);
+  delay(2000); // wait to show version number
 
-  // Check which downconverter is used
-  TypeDC = digitalRead(TYPEDOWNC);
-  TypeTuner = digitalRead(TYPETUNER); // 1: UV1316, 0: UV916
+  // Get downconverter and tuner choice from inpu pins
+  TypeDC    = digitalRead(P_TYPEDOWNC);   // 1: LO=TYPEDC_A, 0: LO=TYPEDC_B
+  TypeTuner = digitalRead(P_TYPETUNER);   // 1: UV1316 , 0: UV916
 
   for (int j = 0; j < nrSamples; j++)
   {
     RFlevelsamples[j] = 0;
   }
 
-  // For UV1316 only
-  if (FREQSTEP==50) rsab=0x0; else rsab=0x3;  //11=step of 62,5 kHz, 00=step of 50 kHz
-
-  if (TypeTuner == 1) // UV1316
-  {
-    tuneradress = 0x60;
-    controlbyte = 0x80 | (rsab<<1);
-    if (TypeDC == 0)
-      band=0x01;
+  // define codes to send to tuner
+  if (TypeTuner == TYPE_UV1316)
+  {    
+    tuneradress = UV1316_I2CADDR;       // I2C address 
+    controlbyte = UV1316_CTRLBYTE;      // 50 or 62.5 freq. step
+    if (TypeDC == TYPEDC_A)
+      band=BAND_UV1316_A;
     else
-      band=0x04;
+      band=BAND_UV1316_B;
   }
-  else // UV916
+  else                                  // TYPE_UV916
   {
-    tuneradress = 0x61;
-    controlbyte = 0x8E; // ?? freqstep??
-    if (TypeDC == 0)
-      band=0x60;
+    tuneradress = UV916_I2CADDR;        // I2C address 
+    controlbyte = UV916_CTRLBYTE;       // always 62.5 freq. step
+    if (TypeDC == TYPEDC_A)
+      band=BAND_UV916_A;
     else
-      band=0x30;
+      band=BAND_UV916_B;
   }
 
-
-  if (TypeDC == 0)
+  // define downconverter LO
+  if (TypeDC == TYPEDC_A)
   {
-    DownConvFreq = 15570; // Frequency * 10
+    DownConvFreq = LO_DWNCONV_A;        // Frequency * 10
     #if MONITOR_TX
       Serial.println("Downconverter LO: 1557");
     #endif
-    lcd.setCursor(0, 1);
-             //1234567890123456   
-    lcd.print("DC LO: 1557     ");
   }
   else
   {
-    DownConvFreq = 10000; // Frequency * 10
+    DownConvFreq = LO_DWNCONV_B;        // Frequency * 10
     #if MONITOR_TX
       Serial.println("Downconverter LO: 1000");
     #endif
-    lcd.setCursor(0, 1);
-             //1234567890123456   
-    lcd.print("DC LO: 1000     ");
   }
 
-  lcd.setCursor(0, 0);
-           //1234567890123456   
-  if (TypeTuner==1)
+  // show settings shortly
+  lcd.setCursor(0, 0); // row 1
+  if (TypeTuner==TYPE_UV1316)
+  {
+             //1234567890123456   
     lcd.print("UV1316          ");
-  else
-    lcd.print("UV916          ");
+  }
+  else  // TYPE_UV916
+  {
+             //1234567890123456   
+    lcd.print("UV916           ");
+  }
 
-  delay(3000);
+  f_int=DownConvFreq/10;
+  f_frac=DownConvFreq-(f_int*10);
+  lcd.setCursor(0, 1); // row 2
+  lcd.print(String("DC LO: ")+String(f_int)+String(".")+String(f_frac));
+
+  delay(3000); // time to show above info
+
+  // show VCO, RF levels at row 2
   lcd.setCursor(0, 1);
   lcd.print("VCO      RF     ");
-
 }
 
 void resetpuls()
 {
-  digitalWrite(QPSKpuls, HIGH);
+  digitalWrite(P_QPSKpuls, HIGH);
   delay(200);
-  digitalWrite(QPSKpuls, LOW);
+  digitalWrite(P_QPSKpuls, LOW);
 }
 
 void send2uv()
@@ -265,29 +342,18 @@ void send2uv()
   unsigned long nrSteps;
   unsigned int stepsize_10MHz;
   
-  if (TypeTuner==1)
-    stepsize_10MHz=1000/FREQSTEP;       // UV1316
+  if (TypeTuner==TYPE_UV1316)
+    stepsize_10MHz=1000/FREQSTEP_UV1316; // UV1316
   else
     stepsize_10MHz=1000/FREQSTEP_UV916; // UV916
-  /*
-  Downconverter is minus 1557 MHz
-  Calculation of number of steps:
-  N = (Freq_rec + 36.45 MHz) * 16
-  2783(.2) = (137.5 + 36.45) * 16
-  */
 
-  if (TuneFreq > 2000) // Downconverter is used
+  if (TuneFreq > 2000)                  // Downconverter is used
     UVFreq = TuneFreq - DownConvFreq;
-  else
+  else                                  // no downconverter
     UVFreq = TuneFreq;
 
-  if ( TypeDC == 1) // Downconverter with LO 1000 MHz
-    band = 0x04;
-  else              // Downconverter with LO 1557 MHz or no downconverter
-    band = 0x01;
-
   nrSteps = (UVFreq + FREQIF) * stepsize_10MHz;
-  nrSteps = nrSteps / 10; // Because all frequencies x 10
+  nrSteps = nrSteps / 10;               // Because all frequencies x 10
 
   msb = nrSteps / 256;
   lsb = nrSteps % 256;
@@ -308,10 +374,17 @@ void send2uv()
     Serial.println(msb, HEX);
     Serial.print("lsb: ");
     Serial.println(lsb, HEX);
+    Serial.print("address: ");
+    Serial.println(tuneradress, HEX);
+    Serial.print("controlbyte: ");
+    Serial.println(controlbyte, HEX);
+    Serial.print("band: ");
+    Serial.println(band, HEX);
+    
   #endif
   delay(100);
 
-  //Show frequency and satellite on display
+  // Show frequency and satellite on display
   lcd.setCursor(0, 0);
   lcd.print(freqmessage);
 }
@@ -346,7 +419,7 @@ void handle_switch()
   boolean mode_psk;
   // From the AD-converter we receive 12 valules:
   // 0, 91, 185, 278, 372, 464, 557, 651, 744, 837, 930, 1023.
-  TuneSwitchNew = (analogRead(TUNINGSWITCH) + 46) / 93 + 1;
+  TuneSwitchNew = (analogRead(P_TUNINGSWITCH) + 46) / 93 + 1;
   // Check if there is a change in the position of the tuning switch.
   if (TuneSwitchNew != TuneSwitchOld)
   {
@@ -407,16 +480,16 @@ void handle_switch()
         TuneFreq = 16980;
        break;
     }
-    digitalWrite(MODtype, mode_psk);
+    digitalWrite(P_MODtype, mode_psk);
 
     send2uv();
     resetpuls();
     TuneSwitchOld = TuneSwitchNew;
   }
 
-  if (get_data(sdata))
+  if (get_data(sdata))      // always search for data...
   {
-    if (TuneSwitchNew==5)
+    if (TuneSwitchNew==5)   // but only used in auto-mode
     {
       unsigned char crc=0;
       unsigned char *xsdata;
@@ -436,7 +509,7 @@ void handle_switch()
         TuneFreq=TuneFreq_auto;
         mode_psk=mode_psk_auto;
 
-        digitalWrite(MODtype, mode_psk); 
+        digitalWrite(P_MODtype, mode_psk); 
 
         nr_crcerr=0;
         send2uv();
@@ -469,8 +542,8 @@ void handle_rflevel()
   static int VCOAvgOld, VCOAvgNew;
 
   // Fill arrays with samples to calculate averages
-  RFlevelsamples[i] = analogRead(RFlevel);
-  VCOsamples[i] = analogRead(VCO);
+  RFlevelsamples[i] = analogRead(P_RFlevel);
+  VCOsamples[i] = analogRead(P_VCO);
   delay(20);
   i++;
   if (i >= nrSamples)
@@ -483,8 +556,8 @@ void handle_rflevel()
     
     for (int j = 0; j < nrSamples; j++)
     {
-        RFlevelTot = RFlevelTot + RFlevelsamples[j];
-        VCOTot = VCOTot + VCOsamples[j];
+      RFlevelTot = RFlevelTot + RFlevelsamples[j];
+      VCOTot = VCOTot + VCOsamples[j];
     }
     
     RFlevelAvgNew = RFlevelTot / nrSamples;
@@ -509,18 +582,8 @@ void handle_rflevel()
     dispvalue = centivolts / 100;
     strVCO = String(centivolts / 100);
     strVCO.concat(".");
-
-    int fraction = centivolts % 100;
-
-    if (fraction == 0)
-      strVCO.concat("00");
-    else if (fraction < 10)
-    {
-      strVCO.concat("0");
-      strVCO.concat(fraction);
-    }
-    else
-      strVCO.concat(fraction);
+    sprintf(str,"%02d",centivolts % 100);
+    strVCO.concat(str);
 
     VCOAvgOld = VCOAvgNew;
   }
@@ -533,6 +596,6 @@ void handle_rflevel()
 void loop()
 {
   handle_switch();
-  if (!Serial.available())
+  if (!Serial.available())   // only handle vco/rf levels if no serial data available
     handle_rflevel();
 }
